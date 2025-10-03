@@ -1,5 +1,5 @@
 {
-  "name": "rtrwh-assess",
+  "name": "sawan-rtrwh-planner",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,7 +11,8 @@
   "dependencies": {
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "jspdf": "^3.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

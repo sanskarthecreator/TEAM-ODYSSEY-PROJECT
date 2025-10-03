@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import type { AssessmentResult, Feasibility, RecommendedStructure } from '../types';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -7,15 +7,53 @@ import { MapIcon } from './icons/MapIcon';
 import { TrendingUpIcon } from './icons/TrendingUpIcon';
 import { DollarSignIcon } from './icons/DollarSignIcon';
 import { RulerIcon } from './icons/RulerIcon';
-import { Spinner } from './ui/Spinner';
+import { QuestionMarkCircleIcon } from './icons/QuestionMarkCircleIcon';
+import { generateReportPdf } from '../services/pdfGenerator';
 
-// The jspdf and html2canvas libraries are loaded from a CDN in index.html
+// The jspdf library is now loaded dynamically. html2canvas is no longer needed.
 declare global {
   interface Window {
     jspdf: any;
-    html2canvas: any;
   }
 }
+
+// Helper function to dynamically load a script and return a promise.
+const loadScript = (id: string, src: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    // If the script already exists in the DOM, resolve immediately.
+    if (document.getElementById(id)) {
+      return resolve();
+    }
+    const script = document.createElement('script');
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      console.error(`Failed to load script: ${src}`);
+      reject(new Error(`Could not load required script: ${src}`));
+    };
+    document.head.appendChild(script);
+  });
+};
+
+// Ensures that the jspdf library is loaded before proceeding.
+const ensurePdfLib = async () => {
+  if (window.jspdf?.jsPDF) {
+    return;
+  }
+  
+  await loadScript(
+      'jspdf-lib', 
+      "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+  );
+  
+  // Final check after attempting to load to ensure it initialized correctly.
+  if (!window.jspdf?.jsPDF) {
+    throw new Error('PDF library loaded but failed to initialize. This may be due to a network issue or an ad-blocker.');
+  }
+};
+
 
 interface ResultsDisplayProps {
   results: AssessmentResult;
@@ -29,97 +67,60 @@ const feasibilityStyles: Record<Feasibility, { bg: string; text: string; border:
 };
 
 const StructureDetails: React.FC<{ structure: RecommendedStructure }> = ({ structure }) => {
-    const { type, dimensions } = structure;
+    const { type, dimensions, count, volumeM3 } = structure;
     if (!dimensions) return null;
-    
-    let details = [];
+
+    const dimensionDetails = [];
     if (type === 'pit') {
-        if (dimensions.areaM2) details.push(`Area: ${dimensions.areaM2} m²`);
-        if (dimensions.depthM) details.push(`Depth: ${dimensions.depthM} m`);
+        if (dimensions.areaM2) dimensionDetails.push(`Area: ${dimensions.areaM2} m²`);
+        if (dimensions.depthM) dimensionDetails.push(`Depth: ${dimensions.depthM} m`);
     } else if (type === 'trench') {
-        if (dimensions.lengthM) details.push(`Length: ${dimensions.lengthM} m`);
-        if (dimensions.widthM) details.push(`Width: ${dimensions.widthM} m`);
-        if (dimensions.depthM) details.push(`Depth: ${dimensions.depthM} m`);
+        if (dimensions.lengthM) dimensionDetails.push(`Length: ${dimensions.lengthM} m`);
+        if (dimensions.widthM) dimensionDetails.push(`Width: ${dimensions.widthM} m`);
+        if (dimensions.depthM) dimensionDetails.push(`Depth: ${dimensions.depthM} m`);
+    } else if (type === 'shaft') {
+        if (dimensions.areaM2) dimensionDetails.push(`Top Pit Area: ${dimensions.areaM2} m²`);
+        if (dimensions.depthM) dimensionDetails.push(`Shaft Depth: ${dimensions.depthM} m`);
     }
-    
-    if (details.length === 0) return null;
+
+    const hasDetailsToShow = dimensionDetails.length > 0 || (count && count > 1);
+    if (!hasDetailsToShow) return null;
 
     return (
         <div className="text-sm text-gray-500 border-t pt-2 mt-2">
-            <p className="font-semibold">Recommended Dimensions:</p>
-            <ul className="list-disc list-inside">
-                {details.map((d, i) => <li key={i}>{d}</li>)}
-            </ul>
+            {dimensionDetails.length > 0 && (
+                <>
+                    <p className="font-semibold">Recommended Dimensions{count && count > 1 ? ' (per unit)' : ''}:</p>
+                    <ul className="list-disc list-inside">
+                        {dimensionDetails.map((d, i) => <li key={i}>{d}</li>)}
+                    </ul>
+                </>
+            )}
+             {count && count > 1 && (
+                <p className={dimensionDetails.length > 0 ? 'mt-1' : ''}>
+                    <span className="font-semibold">Recharge Capacity (per unit):</span>
+                    {' '}{(volumeM3 / count).toFixed(1)} m³
+                </p>
+            )}
         </div>
     );
-}
+};
 
 
 const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, onReset }) => {
   const feasibilityStyle = feasibilityStyles[results.feasibility];
-  const resultsRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownloadPdf = async () => {
-    const resultsElement = resultsRef.current;
-    if (!resultsElement) return;
-
     setIsDownloading(true);
 
     try {
-        if (!window.jspdf || !window.html2canvas) {
-          throw new Error('PDF generation libraries not loaded.');
-        }
-
-        const { jsPDF } = window.jspdf;
-        const html2canvas = window.html2canvas;
-
-        if (typeof html2canvas !== 'function') {
-          throw new Error('html2canvas is not loaded or not a function. Check the CDN script tag in index.html.');
-        }
-
-        const canvas = await html2canvas(resultsElement, {
-            scale: 2, // Improve resolution
-            useCORS: true,
-            logging: false,
-            // Exclude buttons from the capture
-            ignoreElements: (element) => element.classList.contains('pdf-ignore'),
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        
-        const pdf = new jsPDF({
-            orientation: 'p',
-            unit: 'mm',
-            format: 'a4',
-        });
-        
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const canvasWidth = canvas.width;
-        const canvasHeight = canvas.height;
-        const ratio = canvasWidth / canvasHeight;
-        
-        const imgWidth = pdfWidth;
-        const imgHeight = imgWidth / ratio;
-        
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdf.internal.pageSize.getHeight();
-
-        while (heightLeft > 0) {
-            position = -heightLeft;
-            pdf.addPage();
-            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pdf.internal.pageSize.getHeight();
-        }
-        
-        pdf.save('RTRWH-Assessment-Report.pdf');
-
+        await ensurePdfLib();
+        await generateReportPdf(results);
     } catch (error) {
         console.error("Failed to generate PDF:", error);
-        alert("Sorry, there was an error creating the PDF. Please try again.");
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        alert(`Sorry, there was an error creating the PDF. Please check your internet connection and disable any ad-blockers that might be preventing scripts from loading.\n\nDetails: ${errorMessage}`);
     } finally {
         setIsDownloading(false);
     }
@@ -128,7 +129,8 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, onReset }) => 
 
   return (
     <>
-    <div ref={resultsRef} className="max-w-6xl mx-auto animate-fade-in bg-gray-50 p-4 md:p-8">
+    {/* This container is no longer captured, but kept for consistent web layout */}
+    <div className="max-w-6xl mx-auto animate-fade-in bg-gray-50 p-4 md:p-8">
         <Card className={`p-6 mb-8 border-l-4 ${feasibilityStyle.border} ${feasibilityStyle.bg}`}>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
                 <div className="mb-4 sm:mb-0">
@@ -146,13 +148,21 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, onReset }) => 
             <div className="p-6">
                 <div className="flex items-center text-blue-600 mb-4">
                     <WaterIcon className="w-8 h-8 mr-3"/>
-                    <h3 className="text-xl font-bold">Total Harvestable Water</h3>
+                    <h3 className="text-xl font-bold">Net RWH Potential</h3>
                 </div>
                 <p className="text-6xl font-extrabold text-gray-800">{results.annualHarvestM3}<span className="text-2xl font-medium ml-2">m³/year</span></p>
                 <p className="text-gray-600 mt-2 text-lg">Equal to <strong>{(results.annualHarvestM3 * 1000).toLocaleString()} liters</strong> annually.</p>
-                <div className="mt-4 text-sm text-gray-500 border-t pt-2">
-                    <p>Monsoon Season Harvest: <strong>{results.monsoonHarvestM3} m³</strong></p>
-                    <p>Based on <strong>{results.annualRainMm} mm</strong> average annual rainfall in <strong>{results.locationName}</strong>.</p>
+                <div className="mt-4 text-sm text-gray-500 border-t pt-3">
+                    <div className="space-y-1">
+                      <p>Monsoon Season Harvest: <strong>{results.monsoonHarvestM3} m³</strong></p>
+                      <p>Based on <strong>{results.annualRainMm} mm</strong> average annual rainfall in <strong>{results.locationName}</strong>.</p>
+                    </div>
+                    <div className="mt-3 bg-gray-100 p-2 rounded-md flex items-start space-x-2">
+                        <QuestionMarkCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5"/>
+                        <p>
+                            This is a net estimate. The calculation accounts for your roof type and includes a standard <strong>{((1 - results.systemEfficiency) * 100).toFixed(0)}% system loss factor</strong> for first flush, evaporation, and filter inefficiency to be more realistic.
+                        </p>
+                    </div>
                 </div>
             </div>
         </Card>
@@ -184,15 +194,21 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, onReset }) => 
             <div className="p-6">
                  <div className="flex items-center text-purple-600 mb-4">
                     <RulerIcon className="w-8 h-8 mr-3"/>
-                    <h3 className="text-xl font-bold">Recommended Unit</h3>
+                    <h3 className="text-xl font-bold">Recommended Unit(s)</h3>
                 </div>
-                {results.recommendedStructures.length > 0 ? results.recommendedStructures.map((s, i) => (
-                    <div key={i} className="space-y-1">
-                        <p className="text-3xl font-bold text-gray-800 capitalize">{s.type}</p>
-                        <p className="text-md text-gray-600">Required Volume: <strong>{s.volumeM3} m³</strong></p>
-                        <StructureDetails structure={s} />
+                {results.recommendedStructures.length > 0 ? (
+                    <div className="space-y-4">
+                        {results.recommendedStructures.map((s, i) => (
+                             <div key={i} className={i > 0 ? "border-t pt-4" : ""}>
+                                <p className="text-2xl font-bold text-gray-800 capitalize">
+                                    {s.count && s.count > 1 ? `${s.count} x ` : ''}{s.type}
+                                </p>
+                                <p className="text-md text-gray-600">Total Recharge Capacity: <strong>{s.volumeM3} m³</strong></p>
+                                <StructureDetails structure={s} />
+                            </div>
+                        ))}
                     </div>
-                )) : <p className="text-gray-600">No recharge structure needed based on volume.</p>}
+                ): <p className="text-gray-600">No recharge structure needed based on volume.</p>}
             </div>
         </Card>
         
@@ -201,7 +217,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results, onReset }) => 
             <div className="p-6">
                  <div className="flex items-center text-green-600 mb-4">
                     <DollarSignIcon className="w-8 h-8 mr-3"/>
-                    <h3 className="text-xl font-bold">Estimated Cost</h3>
+                    <h3 className="text-xl font-bold">Total Estimated Cost</h3>
                 </div>
                  <p className="text-4xl font-bold text-gray-800">₹{results.costEstimateInr.toLocaleString('en-IN')}</p>
                  <p className="text-gray-600">One-time investment</p>

@@ -1,3 +1,5 @@
+// FIX: Removed self-import of `RoofType` which was causing a conflict with its own declaration.
+
 export enum RoofType {
   METAL = 'metal',
   TILE = 'tile',
@@ -24,8 +26,9 @@ export interface RecommendedStructure {
     lengthM?: number;
     widthM?: number;
   };
-  volumeM3: number;
-  costInr: number;
+  volumeM3: number; // For multiple units, this is the TOTAL volume
+  costInr: number; // For multiple units, this is the TOTAL cost
+  count?: number;
 }
 
 export type Feasibility = 'Green' | 'Yellow' | 'Red';
@@ -48,4 +51,5 @@ export interface AssessmentResult {
   costEstimateInr: number;
   costBenefit: CostBenefit;
   locationName: string;
+  systemEfficiency: number;
 }

@@ -1,5 +1,5 @@
 {
-  "name": "RTRWH Assess",
+  "name": "Sawan RTRWH Planner",
   "description": "A web application to help users assess the potential for rooftop rainwater harvesting (RTRWH) and artificial groundwater recharge at their location.",
   "requestFramePermissions": [
     "geolocation"

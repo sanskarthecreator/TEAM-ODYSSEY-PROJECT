@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import L from 'leaflet';
 import { LocateIcon } from './icons/LocateIcon';
@@ -21,6 +20,8 @@ interface MapSelectorProps {
   onAreaChange: (area: number) => void;
 }
 
+type MessageType = 'info' | 'success' | 'error';
+
 const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocationChange, onAreaChange }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -31,10 +32,18 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
   const [isLocating, setIsLocating] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [points, setPoints] = useState<L.LatLng[]>([]);
-  const [instruction, setInstruction] = useState('Use the map to find your property.');
+  const [mapMessage, setMapMessage] = useState<{text: string, type: MessageType}>({text: 'Use the map to find your property.', type: 'info'});
 
   useEffect(() => {
     isDrawingRef.current = isDrawing;
+    const mapContainer = mapContainerRef.current;
+    if (mapContainer) {
+      if (isDrawing) {
+        mapContainer.classList.add('drawing-active');
+      } else {
+        mapContainer.classList.remove('drawing-active');
+      }
+    }
   }, [isDrawing]);
 
   const calculateArea = (latlngs: L.LatLng[]) => {
@@ -98,13 +107,13 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
 
     if (points.length < 4) {
         if (isDrawing) {
-            setInstruction(`Click corner ${points.length + 1}...`);
+            setMapMessage({text: `Click corner ${points.length + 1}...`, type: 'info'});
         }
     } else {
         setIsDrawing(false);
         const area = calculateArea(points);
         onAreaChange(area);
-        setInstruction(`Area selected: ${area.toFixed(2)} m². You can now proceed.`);
+        setMapMessage({text: `Area selected: ${area.toFixed(2)} m². You can now proceed.`, type: 'success'});
     }
 
   }, [points, onAreaChange, isDrawing]);
@@ -112,6 +121,7 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
   const handleLocateMe = () => {
     if (navigator.geolocation) {
       setIsLocating(true);
+      setMapMessage({text: 'Getting your location...', type: 'info'});
       navigator.geolocation.getCurrentPosition(
         (position) => {
           onLocationChange(
@@ -119,9 +129,10 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
             parseFloat(position.coords.longitude.toFixed(4))
           );
           setIsLocating(false);
+          setMapMessage({text: 'Location found! You can now draw your roof area.', type: 'success'});
         },
         (error) => {
-          let errorMessage = "Could not retrieve your location. Please enter it manually.";
+          let errorMessage = "Could not retrieve your location.";
           switch(error.code) {
               case error.PERMISSION_DENIED:
                   errorMessage = "Location access was denied. Please enable it in your browser settings.";
@@ -130,24 +141,24 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
                   errorMessage = "Location information is currently unavailable.";
                   break;
               case error.TIMEOUT:
-                  errorMessage = "The request to get your location timed out.";
+                  errorMessage = "Request for location timed out.";
                   break;
           }
           console.error("Geolocation failed:", error.message);
-          alert(errorMessage);
+          setMapMessage({text: errorMessage, type: 'error'});
           setIsLocating(false);
         },
         { enableHighAccuracy: true }
       );
     } else {
-      alert("Geolocation is not supported by this browser.");
+      setMapMessage({text: "Geolocation is not supported by this browser.", type: 'error'});
     }
   };
   
   const handleStartDrawing = () => {
       handleClearDrawing();
       setIsDrawing(true);
-      setInstruction('Click the first corner of your roof...');
+      setMapMessage({text: 'Click the first corner of your roof...', type: 'info'});
   };
 
   const handleClearDrawing = () => {
@@ -161,7 +172,13 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
     }
     markersRef.current.forEach(marker => mapInstanceRef.current?.removeLayer(marker));
     markersRef.current = [];
-    setInstruction('Selection cleared. Find your location or start drawing again.');
+    setMapMessage({text: 'Selection cleared. Find your location or start drawing again.', type: 'info'});
+  };
+
+  const messageStyles: Record<MessageType, string> = {
+      info: 'bg-white text-gray-800',
+      success: 'bg-green-100 text-green-800',
+      error: 'bg-red-100 text-red-800',
   };
 
   return (
@@ -178,8 +195,8 @@ const MapSelector: React.FC<MapSelectorProps> = ({ latitude, longitude, onLocati
                 <TrashIcon className="w-5 h-5" />
             </Button>
         </div>
-        <div className="bg-white bg-opacity-80 p-2 mt-2 rounded-md text-center text-sm font-semibold text-gray-800">
-            <p>{instruction}</p>
+        <div className={`bg-opacity-90 p-2 mt-2 rounded-md text-center text-sm font-semibold transition-colors duration-300 ${messageStyles[mapMessage.type]}`}>
+            <p>{mapMessage.text}</p>
         </div>
     </div>
   );

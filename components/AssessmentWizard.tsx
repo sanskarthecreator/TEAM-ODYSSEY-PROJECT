@@ -97,8 +97,12 @@ const AssessmentWizard: React.FC<AssessmentWizardProps> = ({ onComplete }) => {
       const result = await postAssess(input);
       onComplete(result);
     } catch (err) {
-      setError('An error occurred while assessing. Please try again.');
-      console.error(err);
+      console.error("Assessment failed:", err);
+      let userFriendlyMessage = 'An unexpected error occurred. Please check your internet connection and try again.';
+      if (err instanceof Error) {
+        userFriendlyMessage = `Failed to get assessment: ${err.message}. Please try again.`;
+      }
+      setError(userFriendlyMessage);
     } finally {
       setIsLoading(false);
     }

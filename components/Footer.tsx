@@ -11,7 +11,7 @@ const Footer: React.FC = () => {
           <a href="#" className="text-blue-600 hover:underline">Open-Meteo</a>, and{' '}
           <a href="#" className="text-blue-600 hover:underline">CGWB</a>.
         </p>
-        <p>&copy; {new Date().getFullYear()} RTRWH Assess. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} Sawan RTRWH Planner. All rights reserved.</p>
       </div>
     </footer>
   );
